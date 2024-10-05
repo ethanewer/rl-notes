@@ -1,12 +1,14 @@
 from typing import Callable
 
 import gymnasium as gym
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from numpy.typing import NDArray
 from torch import Tensor, nn, optim
 from torch.nn import functional as F
 from torch.types import Device
-from tqdm import trange  # type: ignore
+from tqdm.notebook import trange  # type: ignore
 
 
 @torch.no_grad()
@@ -75,3 +77,14 @@ def optimize_model(
 
     env.close()
     return reward_records
+
+
+def plot_rewards(rewards: dict[str, list[float]]) -> None:
+    for label, r in rewards.items():
+        average_rewards = np.convolve(r, np.ones(50) / 50, mode="full")[: len(r)]
+        plt.plot(average_rewards, label=label)
+
+    plt.xlabel("Iteration")
+    plt.ylabel("Average Reward")
+    plt.legend()
+    plt.show()
