@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from torch import Tensor, nn, optim
 from torch.nn import functional as F
 from torch.types import Device
-from tqdm.notebook import trange  # type: ignore
+from tqdm import trange  # type: ignore
 
 
 @torch.no_grad()
@@ -40,7 +40,7 @@ def sample_trajectory(
     return states, actions, rewards
 
 
-def optimize_model(
+def optimize_policy_gradient(
     loss_fn: Callable[[Tensor, Tensor, Tensor], Tensor],
     device: Device,
     n_iters: int,
@@ -57,7 +57,7 @@ def optimize_model(
         nn.Linear(64, n_actions),
     ).to(device)
 
-    opt = optim.AdamW(policy.parameters(), lr=0.001, amsgrad=True)  # type: ignore
+    opt = optim.AdamW(policy.parameters(), lr=0.001)  # type: ignore
 
     reward_records: list[float] = []
 
