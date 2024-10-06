@@ -1,15 +1,16 @@
 from typing import Callable
 
 import gymnasium as gym
-import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import optax  # type: ignore
 from flax import nnx
-from jax import Array, nn
-from jax import numpy as jnp
 from numpy.typing import NDArray
 from tqdm import trange  # type: ignore
+
+import jax
+from jax import Array, nn
+from jax import numpy as jnp
 
 
 class MLP(nnx.Module):
@@ -50,7 +51,7 @@ def sample_trajectory(
 
 
 def optimize_policy_gradient(
-    loss_fn: Callable[[nnx.Module, Array, Array, Array], Array],
+    loss_fn: Callable[[MLP, Array, Array, Array], Array],
     n_iters: int,
 ) -> list[float]:
     env = gym.make("CartPole-v1")
@@ -67,7 +68,7 @@ def optimize_policy_gradient(
 
     key = jax.random.PRNGKey(0)
 
-    @nnx.jit
+    # @nnx.jit
     def train_step(
         policy: MLP,
         opt: nnx.Optimizer,
