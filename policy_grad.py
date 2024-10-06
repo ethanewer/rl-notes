@@ -4,51 +4,22 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from numpy.typing import NDArray
 from torch import Tensor, nn, optim
 from torch.nn import functional as F
 from torch.types import Device
 from tqdm import trange  # type: ignore
 
 
-@torch.no_grad()
-def sample_action(state: NDArray, policy: nn.Module, device: Device) -> float:
-    inputs = torch.tensor(state[None], dtype=torch.float).to(device)
-    logits = policy(inputs)[0]
-    probs = F.softmax(logits, dim=-1)
-    return torch.multinomial(probs, num_samples=1).item()
-
-
-def sample_trajectory(
-    env: gym.Env,
-    policy: nn.Module,
-    device: Device,
-) -> tuple[list[NDArray], list[int], list[float]]:
-    done = False
-    states: list[NDArray] = []
-    actions: list[int] = []
-    rewards: list[float] = []
-    s, _ = env.reset()
-    while not done:
-        states.append(s.tolist())
-        a = sample_action(s, policy, device)
-        s, r, term, trunc, _ = env.step(a)
-        actions.append(int(a))
-        rewards.append(float(r))
-        done = term or trunc
-
-    return states, actions, rewards
-
-
 def optimize_policy_gradient(
     loss_fn: Callable[[Tensor, Tensor, Tensor], Tensor],
     device: Device = "cpu",
-    n_iters: int = 512,
+    n_iters: int = 256,
+    batch_size: int = 32,
 ) -> list[float]:
-    env = gym.make("CartPole-v1")
+    envs = [gym.make("CartPole-v1") for _ in range(batch_size)]
 
-    n_actions = env.action_space.n  # type: ignore
-    state, _ = env.reset()
+    n_actions = envs[0].action_space.n  # type: ignore
+    state, _ = envs[0].reset()
     n_observations = len(state)
 
     policy = nn.Sequential(
@@ -57,25 +28,54 @@ def optimize_policy_gradient(
         nn.Linear(64, n_actions),
     ).to(device)
 
-    opt = optim.AdamW(policy.parameters(), lr=0.001)  # type: ignore
+    policy_opt = optim.AdamW(policy.parameters(), lr=1e-3)  # type: ignore
 
     reward_records: list[float] = []
 
-    for _ in trange(n_iters, desc="Optimizing Policy"):
-        states, actions, rewards = sample_trajectory(env, policy, device)
+    for _ in trange(n_iters, desc="policy gradient optimization", leave=False):
+        states = [
+            torch.from_numpy(np.array([env.reset()[0] for env in envs])).to(device)
+        ]
+        running = [True] * batch_size
+        actions = []
+        rewards = []
+        with torch.no_grad():
+            while any(running):
+                logits = policy(states[-1])
+                probs = F.softmax(logits, dim=-1)
+                actions.append(torch.multinomial(probs, num_samples=1)[:, 0])
 
-        s = torch.tensor(states).to(device)
-        a = torch.tensor(actions).to(device)
-        r = torch.tensor(rewards).to(device)
+                states.append(torch.zeros_like(states[-1]))
+                rewards.append(
+                    torch.zeros(batch_size, dtype=torch.float32, device=device)
+                )
+                for i in range(batch_size):
+                    if running[i]:
+                        next_state, reward, term, trunc, _ = envs[i].step(
+                            actions[-1][i].item()
+                        )
+                        states[-1][i] = torch.from_numpy(next_state).to(device)
+                        rewards[-1][i] = float(reward)
+                        running[i] = not (term or trunc)
 
-        opt.zero_grad()
-        loss = loss_fn(policy(s), a, r)
-        loss.backward()
-        opt.step()
+        s = torch.stack(states[:-1])
+        a = torch.stack(actions)
+        r = torch.stack(rewards)
 
-        reward_records.append(sum(rewards))
+        policy_opt.zero_grad()
 
-    env.close()
+        logits = policy(s)
+        policy_loss = torch.tensor(0.0)
+        for i in range(batch_size):
+            policy_loss += loss_fn(logits[:, i], a[:, i], r[:, i])
+
+        policy_loss.backward()
+        policy_opt.step()
+        reward_records.append(r.sum(dim=0).mean().item())
+
+    for env in envs:
+        env.close()
+
     return reward_records
 
 
