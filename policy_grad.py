@@ -42,8 +42,8 @@ def sample_trajectory(
 
 def optimize_policy_gradient(
     loss_fn: Callable[[Tensor, Tensor, Tensor], Tensor],
-    device: Device,
-    n_iters: int,
+    device: Device = "cpu",
+    n_iters: int = 512,
 ) -> list[float]:
     env = gym.make("CartPole-v1")
 
